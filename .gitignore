@@ -1,0 +1,46 @@
+# Build output
+bin/
+obj/
+spike/**/bin/
+spike/**/obj/
+TestResults/
+
+# .env is intentionally committed so a fresh clone runs without setup.
+# Bundled credentials are evaluation-only — rotate after eval.
+.env.local
+.env.*.local
+
+# User-specific
+*.user
+
+# IDE / editor / tooling — local-only
+.idea/
+.vs/
+.vscode/
+*.swp
+.DS_Store
+
+# Claude Code / agent tooling — personal config
+.claude/
+
+# Office app lock files (LibreOffice / Word leave these behind)
+.~lock.*#
+~$*
+
+# Frontend
+node_modules/
+src/VoiceConcierge.Ui/dist/
+
+# Test/coverage artifacts
+coverage/
+*.lcov
+*.coverage
+*.coveragexml
+
+# Credentials / certificates (defense in depth — never commit)
+*.pfx
+*.snk
+*.crt
+*.pem
+*.p12
+*.key

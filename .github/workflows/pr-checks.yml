@@ -1,0 +1,84 @@
+name: PR Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: pr-checks-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  dotnet:
+    name: .NET build + test + audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore (locked)
+        run: dotnet restore VoiceConcierge.slnx --locked-mode
+
+      - name: Build (warnings as errors)
+        run: dotnet build VoiceConcierge.slnx --no-restore -c Release -warnaserror
+
+      - name: Test
+        run: dotnet test VoiceConcierge.slnx --no-build -c Release --logger trx --results-directory TestResults
+
+      - name: Test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: .NET test results
+          path: 'TestResults/*.trx'
+          reporter: dotnet-trx
+
+      - name: NuGet vulnerable audit
+        run: |
+          out=$(dotnet list VoiceConcierge.slnx package --vulnerable --include-transitive)
+          echo "$out"
+          ! echo "$out" | grep -qE ' > '
+
+      - name: NuGet deprecated audit
+        run: |
+          out=$(dotnet list VoiceConcierge.slnx package --deprecated)
+          echo "$out"
+          ! echo "$out" | grep -qE ' > '
+
+  ui:
+    name: UI check + build + audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/VoiceConcierge.Ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: src/VoiceConcierge.Ui/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Check all (typecheck + test + build)
+        run: npm run check-all
+
+      - name: npm audit (prod)
+        run: npm audit --omit dev --audit-level=high

@@ -1,0 +1,27 @@
+services:
+  db:
+    ports: !reset []
+    restart: unless-stopped
+    healthcheck:
+      interval: 30s
+
+  voiceconcierge-api:
+    restart: unless-stopped
+    healthcheck:
+      interval: 30s
+      retries: 3
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+  voiceconcierge-ui:
+    restart: unless-stopped
+    healthcheck:
+      interval: 30s
+
+  voiceconcierge-agent:
+    restart: unless-stopped
+    healthcheck:
+      interval: 30s
+      retries: 3
+    environment:
+      DOTNET_ENVIRONMENT: Production

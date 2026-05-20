@@ -1,0 +1,81 @@
+services:
+  db:
+    build:
+      context: ./database/postgres
+      dockerfile: Dockerfile
+    image: voiceconcierge-postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-voiceconcierge}
+    ports:
+      - "5433:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voice} -d ${POSTGRES_DB:-voiceconcierge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  voiceconcierge-api:
+    build:
+      context: .
+      dockerfile: src/VoiceConcierge.Api/Dockerfile
+    environment:
+      ConnectionStrings__Postgres: "Host=db;Port=5432;Database=${POSTGRES_DB:-voiceconcierge};Username=${POSTGRES_USER:-voice};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      ASPNETCORE_URLS: "http://+:8080"
+      UI_ORIGIN: ${UI_ORIGIN:-http://localhost:5173,http://localhost:8080,http://localhost}
+      LIVEKIT_URL: ${LIVEKIT_URL:?set LIVEKIT_URL in .env}
+      LIVEKIT_ROOM: ${LIVEKIT_ROOM:-concierge}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set a strong >=32-char LIVEKIT_API_SECRET in .env}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      ADMIN_API_KEY_PREV: ${ADMIN_API_KEY_PREV:-}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+
+  voiceconcierge-ui:
+    build:
+      context: .
+      dockerfile: src/VoiceConcierge.Ui/Dockerfile
+    ports:
+      - "5173:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      voiceconcierge-api:
+        condition: service_healthy
+
+  voiceconcierge-agent:
+    build:
+      context: .
+      dockerfile: src/VoiceConcierge.Agent/Dockerfile
+    environment:
+      API_BASE: "http://voiceconcierge-api:8080"
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_ROOM: ${LIVEKIT_ROOM:-concierge}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      STT_PROVIDER: ${STT_PROVIDER:-groq}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      voiceconcierge-api:
+        condition: service_healthy
+
+volumes:
+  dbdata:

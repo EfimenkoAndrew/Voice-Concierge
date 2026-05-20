@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VoiceConcierge.Api/VoiceConcierge.Api.csproj" />
+    <Project Path="src/VoiceConcierge.Agent/VoiceConcierge.Agent.csproj" />
+    <Project Path="src/VoiceConcierge.Contracts/VoiceConcierge.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VoiceConcierge.Api.Tests/VoiceConcierge.Api.Tests.csproj" />
+    <Project Path="tests/VoiceConcierge.Agent.Tests/VoiceConcierge.Agent.Tests.csproj" />
+  </Folder>
+</Solution>
