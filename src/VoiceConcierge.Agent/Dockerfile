@@ -13,7 +13,7 @@ RUN dotnet publish src/VoiceConcierge.Agent/VoiceConcierge.Agent.csproj -a $TARG
 
 FROM --platform=$BUILDPLATFORM curlimages/curl:8.11.1 AS models
 USER root
-ARG WHISPER_REV=0a9f1cfd5be37c1bdc60dcec59f0fdaf3826fdda
+ARG WHISPER_REV=5359861c739e955e79d9a303bcbc70fb988958b1
 RUN mkdir -p /m && \
     curl -fsSL "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx" -o /m/silero_vad.onnx && \
     curl -fsSL "https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_REV}/ggml-base.en.bin" -o /m/ggml-base.en.bin
