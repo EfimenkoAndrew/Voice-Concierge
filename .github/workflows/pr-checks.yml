@@ -40,7 +40,7 @@ jobs:
         run: dotnet test VoiceConcierge.slnx --no-build -c Release --logger trx --results-directory TestResults
 
       - name: Test report
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: .NET test results
