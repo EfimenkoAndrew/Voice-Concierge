@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text.Json;
+using System.Threading.Channels;
 using Google.Protobuf;
 using LiveKit.Proto;
 using Microsoft.Extensions.Logging;
@@ -44,8 +45,10 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _internalCts = new();
     private readonly ConcurrentDictionary<string, byte> _greeted = new();
-    private readonly ConcurrentDictionary<string, byte> _subscribedTrackSids = new();
     private readonly ConcurrentQueue<string> _pendingGreetings = new();
+    private readonly Channel<(RTCIceCandidate Candidate, SignalTarget Target)> _iceOut =
+        Channel.CreateUnbounded<(RTCIceCandidate Candidate, SignalTarget Target)>(
+            new UnboundedChannelOptions { SingleReader = true });
 
     private ClientWebSocket? _ws;
     private RTCPeerConnection? _pcPub;
@@ -54,6 +57,7 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
     private CancellationToken _ct;
     private Task? _signalLoop;
     private Task? _pingLoop;
+    private Task? _iceLoop;
     private ushort? _lastSeq;
     private int? _audioPt;
     private long _decodeFailures;
@@ -125,7 +129,7 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
             SDPMediaTypesEnum.audio, OpusPayloadType, "OPUS", OpusAudio.SampleRate, OpusChannels);
         _pcPub.addTrack(new MediaStreamTrack(
             SDPMediaTypesEnum.audio, false, [opusFmt], MediaStreamStatusEnum.SendOnly));
-        _pcPub.onicecandidate += c => FireAndForgetIce(c, SignalTarget.Publisher);
+        _pcPub.onicecandidate += c => EnqueueIce(c, SignalTarget.Publisher);
         _pcPub.onconnectionstatechange += OnPublisherStateChanged;
     }
 
@@ -177,6 +181,7 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
 
         _lastPongTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _pingLoop = Task.Run(() => PingLoopAsync(ct), ct);
+        _iceLoop = Task.Run(() => IceLoopAsync(ct), ct);
     }
 
     private void SignalDisconnected(string reason)
@@ -252,29 +257,41 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
         catch (OperationCanceledException) { }
     }
 
-    private void FireAndForgetIce(RTCIceCandidate? c, SignalTarget target)
+    private void EnqueueIce(RTCIceCandidate? c, SignalTarget target)
     {
-        if (c is null || _ws is null) return;
-        _ = Task.Run(async () =>
+        if (c is not null) _iceOut.Writer.TryWrite((c, target));
+    }
+
+    private async Task IceLoopAsync(CancellationToken ct)
+    {
+        try
         {
-            try
+            await foreach (var (c, target) in _iceOut.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                await Send(new SignalRequest
+                if (Volatile.Read(ref _disposed) != 0) break;
+                try
                 {
-                    Trickle = new TrickleRequest
+                    await Send(new SignalRequest
                     {
-                        CandidateInit = JsonSerializer.Serialize(new
+                        Trickle = new TrickleRequest
                         {
-                            candidate = c.candidate,
-                            sdpMid = c.sdpMid,
-                            sdpMLineIndex = c.sdpMLineIndex,
-                        }),
-                        Target = target,
-                    },
-                }, _ct).ConfigureAwait(false);
+                            CandidateInit = JsonSerializer.Serialize(new
+                            {
+                                candidate = c.candidate,
+                                sdpMid = c.sdpMid,
+                                sdpMLineIndex = c.sdpMLineIndex,
+                            }),
+                            Target = target,
+                        },
+                    }, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogDebug(ex, "ice send ({Target})", target);
+                }
             }
-            catch (Exception ex) { log.LogDebug(ex, "ice send ({Target})", target); }
-        }, _ct);
+        }
+        catch (OperationCanceledException) { }
     }
 
     private async Task CreateOrAnswerSubscriberAsync(SessionDescription remoteOffer, CancellationToken ct)
@@ -284,7 +301,7 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
         {
             _pcSub = new RTCPeerConnection(new RTCConfiguration { iceServers = _iceServers ?? [] });
             _pcSub.OnRtpPacketReceived += OnRtp;
-            _pcSub.onicecandidate += c => FireAndForgetIce(c, SignalTarget.Subscriber);
+            _pcSub.onicecandidate += c => EnqueueIce(c, SignalTarget.Subscriber);
             _pcSub.onconnectionstatechange += s => log.LogInformation("LiveKit sub pc state: {S}", s);
         }
 
@@ -545,6 +562,7 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
         SignalDisconnected("disposed");
+        _iceOut.Writer.TryComplete();
         try { await _internalCts.CancelAsync().ConfigureAwait(false); }
         catch (Exception ex) { log.LogDebug(ex, "internal cts cancel"); }
         try
@@ -571,5 +589,9 @@ public sealed class AgentLiveKitClient(GuestAudioStream guestAudio, ILogger<Agen
         if (_pingLoop is not null)
             try { await _pingLoop.WaitAsync(TimeSpan.FromSeconds(DisposeDrainSeconds)).ConfigureAwait(false); }
             catch (Exception ex) { log.LogDebug(ex, "ping loop drain on dispose"); }
+
+        if (_iceLoop is not null)
+            try { await _iceLoop.WaitAsync(TimeSpan.FromSeconds(DisposeDrainSeconds)).ConfigureAwait(false); }
+            catch (Exception ex) { log.LogDebug(ex, "ice loop drain on dispose"); }
     }
 }
