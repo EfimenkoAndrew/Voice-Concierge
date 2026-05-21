@@ -1,6 +1,5 @@
 using VoiceConcierge.Agent.Audio;
 using VoiceConcierge.Agent.Backend;
-using VoiceConcierge.Agent.LiveKit;
 using VoiceConcierge.Agent.Pipeline;
 using VoiceConcierge.Agent.Providers;
 
@@ -17,7 +16,7 @@ public static class VoiceConciergeAgentConfiguration
         services.AddSpeechAndLanguageProviders(cfg);
         services.AddAudioStack();
         services.AddConciergePipeline();
-        services.AddLiveKitClient();
+        services.AddScoped<ConciergeSession>();
 
         services.AddHostedService<ModelWarmupHostedService>();
         services.AddHostedService<ConciergeWorker>();

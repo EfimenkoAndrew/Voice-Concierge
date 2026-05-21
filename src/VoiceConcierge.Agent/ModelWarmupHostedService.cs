@@ -3,14 +3,14 @@ using VoiceConcierge.Agent.Audio;
 namespace VoiceConcierge.Agent;
 
 public sealed class ModelWarmupHostedService(
-    SileroVad vad,
+    SileroVadModel model,
     ILogger<ModelWarmupHostedService> log) : IHostedService
 {
     public async Task StartAsync(CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(vad);
+        ArgumentNullException.ThrowIfNull(model);
         log.LogInformation("Warming up Silero VAD model");
-        await vad.EnsureReadyAsync(ct).ConfigureAwait(false);
+        await model.EnsureReadyAsync(ct).ConfigureAwait(false);
         log.LogInformation("Model warmup complete");
     }
 
